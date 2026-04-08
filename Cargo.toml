@@ -1,0 +1,54 @@
+[package]
+name = "table-to-title"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "table-to-title"
+path = "src/main.rs"
+required-features = ["server"]
+
+[features]
+default = ["server"]
+server = [
+    "dep:axum",
+    "dep:tokio",
+    "dep:open",
+    "dep:tower-http",
+    "dep:calamine",
+]
+wasm = [
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+]
+
+[dependencies]
+# Always needed (WASM + server)
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+csv        = "1.4"
+docx-rs    = "0.4"
+anyhow     = "1"
+
+# Server only
+axum        = { version = "0.8", optional = true }
+tokio       = { version = "1", features = ["full"], optional = true }
+open        = { version = "5", optional = true }
+tower-http  = { version = "0.6", features = ["cors"], optional = true }
+calamine    = { version = "0.26", features = ["dates"], optional = true }
+
+# WASM only
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys       = { version = "0.3", optional = true }
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+strip         = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

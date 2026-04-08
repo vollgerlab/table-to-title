@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Table-to-Title</title>
+<!-- SheetJS for Excel parsing (only used when an .xlsx/.xls file is uploaded) -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0;
+    background: #f5f5f5;
+    color: #222;
+  }
+  header {
+    background: #1a1a2e;
+    color: #fff;
+    padding: 1rem 2rem;
+  }
+  header h1 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+  header p  { margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.7; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: calc(100vh - 70px);
+  }
+
+  aside {
+    background: #fff;
+    border-right: 1px solid #ddd;
+    padding: 1.5rem 1rem;
+  }
+  aside h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #666; margin: 0 0 1rem; }
+  aside label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin-bottom: 0.75rem; cursor: pointer; }
+  aside input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+  .hint {
+    margin-top: 1.5rem;
+    font-size: 0.78rem;
+    color: #888;
+    line-height: 1.5;
+  }
+  #wasm-status {
+    margin-top: 1rem;
+    font-size: 0.78rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    background: #f0f0f0;
+    color: #666;
+  }
+  #wasm-status.ready  { background: #e6f4ea; color: #2d7d46; }
+  #wasm-status.error  { background: #fff0f0; color: #c00; }
+
+  main { padding: 1.5rem 2rem; }
+  section { margin-bottom: 1.5rem; }
+  h2.section-title { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #666; margin: 0 0 0.5rem; }
+
+  #title-input {
+    width: 100%;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 0.5rem 0.6rem;
+    margin-bottom: 0.75rem;
+  }
+  #title-input:focus { outline: 2px solid #4a90d9; border-color: transparent; }
+
+  .input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .btn-upload {
+    padding: 0.4rem 0.9rem;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  .btn-upload:hover { background: #f0f0f0; }
+  #file-name { font-size: 0.82rem; color: #555; }
+  #file-input { display: none; }
+
+  textarea {
+    width: 100%;
+    height: 180px;
+    font-family: monospace;
+    font-size: 0.8rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 0.5rem;
+    resize: vertical;
+  }
+  textarea:focus { outline: 2px solid #4a90d9; border-color: transparent; }
+
+  #error-box {
+    display: none;
+    background: #fff0f0;
+    border: 1px solid #f99;
+    border-radius: 4px;
+    padding: 0.6rem 1rem;
+    font-size: 0.85rem;
+    color: #c00;
+    margin-top: 0.5rem;
+    white-space: pre-wrap;
+  }
+
+  .preview-box {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 1rem 1.25rem;
+    min-height: 80px;
+    font-size: 0.92rem;
+    line-height: 1.6;
+  }
+  .preview-box.empty { color: #aaa; font-style: italic; }
+  .preview-title { font-size: 1.05rem; font-weight: 600; text-align: center; margin-bottom: 0.6rem; }
+  .aff-list { margin-top: 0.75rem; font-size: 0.88rem; color: #444; }
+  .aff-list p { margin: 0.15rem 0; }
+  .legend { margin-top: 0.6rem; font-size: 0.85rem; color: #555; }
+  .orcid-section { margin-top: 0.75rem; font-size: 0.82rem; color: #555; }
+
+  .export-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .btn-export {
+    padding: 0.5rem 1.2rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
+  .btn-export:disabled { opacity: 0.4; cursor: default; }
+  .btn-docx { background: #2b5eae; color: #fff; }
+  .btn-docx:hover:not(:disabled) { background: #1e4690; }
+  .btn-txt  { background: #fff; color: #333; border: 1px solid #bbb; }
+  .btn-txt:hover:not(:disabled)  { background: #f5f5f5; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Table-to-Title</h1>
+  <p>Paste or upload the biorxiv author submission table to generate a formatted title page</p>
+</header>
+
+<div class="layout">
+  <aside>
+    <h2>Options</h2>
+    <label><input type="checkbox" id="opt-equal" checked> Show * for equal contribution</label>
+    <label><input type="checkbox" id="opt-corresponding" checked> Show † for corresponding authors</label>
+    <label><input type="checkbox" id="opt-orcid"> Include ORCiD list</label>
+    <div id="wasm-status">Loading…</div>
+    <div class="hint">
+      Accepts .tsv, .txt, .xlsx, .xls or pasted text.<br><br>
+      Expected columns:<br>
+      Email, First Name, Middle Name(s)/Initial(s), Last Name, Suffix, Institution,
+      Corresponding Author, ORCiD<br><br>
+      Multiple affiliations per author: separate with <code>;</code> in the Institution column.<br><br>
+      Excel support requires an internet connection (SheetJS CDN).
+    </div>
+  </aside>
+
+  <main>
+    <section>
+      <h2 class="section-title">Input</h2>
+      <input type="text" id="title-input" placeholder="Paper title (optional)">
+      <div class="input-row">
+        <button class="btn-upload" onclick="document.getElementById('file-input').click()">Upload file</button>
+        <span id="file-name"></span>
+        <input type="file" id="file-input" accept=".tsv,.txt,.xlsx,.xls">
+      </div>
+      <textarea id="tsv-input"></textarea>
+      <div id="error-box"></div>
+    </section>
+
+    <section>
+      <h2 class="section-title">Preview</h2>
+      <div class="preview-box empty" id="preview-box">
+        No input yet — paste or upload a TSV file above.
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">Export</h2>
+      <div class="export-row">
+        <button class="btn-export btn-docx" id="btn-docx" disabled>Download .docx</button>
+        <button class="btn-export btn-txt"  id="btn-txt"  disabled>Download .txt</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script type="module">
+  import init, { preview, generate_docx, generate_txt } from './pkg/table_to_title.js';
+
+  const wasmStatus = document.getElementById('wasm-status');
+  const previewBox = document.getElementById('preview-box');
+  const errorBox   = document.getElementById('error-box');
+  const tsvInput   = document.getElementById('tsv-input');
+  const titleInput = document.getElementById('title-input');
+  const btnDocx    = document.getElementById('btn-docx');
+  const btnTxt     = document.getElementById('btn-txt');
+
+  const EXAMPLE_TSV = [
+    ["Email","First Name","Middle Name(s)/Initial(s)","Last Name","Suffix","Institution","Corresponding Author","Home Page URL","Collaborative Group/Consortium","ORCiD","Equal Contribution"],
+    ["jdoe@uw.edu","Jane","A.","Doe","","Department of Genome Sciences, University of Washington School of Medicine, Seattle, WA, USA","","","","0000-0001-2345-6789","yes"],
+    ["bsmith@princeton.edu","Bob","T.","Smith","","Lewis-Sigler Institute for Integrative Genomics, Princeton University, Princeton, NJ, USA; Department of Genome Sciences, University of Washington School of Medicine, Seattle, WA, USA","","","","0000-0002-3456-7890","yes"],
+    ["mvollger@utah.edu","Mitchell","R.","Vollger","","Department of Human Genetics, University of Utah, Salt Lake City, UT, USA","yes","","","0000-0002-8651-1615",""],
+  ].map(r => r.join("\t")).join("\n");
+
+  tsvInput.value = EXAMPLE_TSV;
+  let wasmReady = false;
+  let currentTsv = EXAMPLE_TSV;
+  let debounceTimer = null;
+
+  // Initialise WASM
+  try {
+    await init();
+    wasmReady = true;
+    wasmStatus.textContent = 'Ready';
+    wasmStatus.className = 'ready';
+    updatePreview();
+  } catch (e) {
+    wasmStatus.textContent = 'Failed to load WASM: ' + e.message;
+    wasmStatus.className = 'error';
+  }
+
+  function getTitle() { return titleInput.value.trim(); }
+  function getShowEqual() { return document.getElementById('opt-equal').checked; }
+  function getShowCorresponding() { return document.getElementById('opt-corresponding').checked; }
+  function getShowOrcid() { return document.getElementById('opt-orcid').checked; }
+
+  function showError(msg) {
+    errorBox.style.display = 'block';
+    errorBox.textContent = msg;
+    previewBox.innerHTML = '';
+    previewBox.classList.add('empty');
+    btnDocx.disabled = true;
+    btnTxt.disabled  = true;
+  }
+  function clearError() { errorBox.style.display = 'none'; }
+
+  function updatePreview() {
+    if (!wasmReady) return;
+    if (!currentTsv.trim()) {
+      previewBox.textContent = 'No input yet — paste or upload a TSV file above.';
+      previewBox.classList.add('empty');
+      btnDocx.disabled = true;
+      btnTxt.disabled  = true;
+      clearError();
+      return;
+    }
+    try {
+      const html = preview(currentTsv, getTitle(), getShowCorresponding(), getShowOrcid(), getShowEqual());
+      clearError();
+      previewBox.innerHTML = html;
+      previewBox.classList.remove('empty');
+      btnDocx.disabled = false;
+      btnTxt.disabled  = false;
+    } catch (e) {
+      showError(e.message || String(e));
+    }
+  }
+
+  function scheduleUpdate() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(updatePreview, 300);
+  }
+
+  tsvInput.addEventListener('input', () => { currentTsv = tsvInput.value; scheduleUpdate(); });
+  titleInput.addEventListener('input', scheduleUpdate);
+  document.getElementById('opt-equal').addEventListener('change', updatePreview);
+  document.getElementById('opt-corresponding').addEventListener('change', updatePreview);
+  document.getElementById('opt-orcid').addEventListener('change', updatePreview);
+
+  // File upload
+  document.getElementById('file-input').addEventListener('change', async function () {
+    const file = this.files[0];
+    if (!file) return;
+    document.getElementById('file-name').textContent = file.name;
+    const isExcel = /\.(xlsx|xls)$/i.test(file.name);
+
+    if (isExcel) {
+      try {
+        if (typeof XLSX === 'undefined') {
+          showError('SheetJS not loaded — Excel support requires an internet connection.');
+          return;
+        }
+        const buf = await file.arrayBuffer();
+        const wb  = XLSX.read(buf, { type: 'array' });
+        const ws  = wb.Sheets[wb.SheetNames[0]];
+        currentTsv = XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
+        tsvInput.value = currentTsv;
+        updatePreview();
+      } catch (e) {
+        showError('Excel parse error: ' + e.message);
+      }
+    } else {
+      const reader = new FileReader();
+      reader.onload = e => {
+        currentTsv = e.target.result;
+        tsvInput.value = currentTsv;
+        updatePreview();
+      };
+      reader.readAsText(file);
+    }
+  });
+
+  // Download helpers
+  function downloadBlob(bytes, filename, mime) {
+    const blob = new Blob([bytes], { type: mime });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  btnDocx.addEventListener('click', () => {
+    try {
+      const bytes = generate_docx(currentTsv, getTitle(), getShowCorresponding(), getShowOrcid(), getShowEqual());
+      downloadBlob(bytes, 'authors.docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    } catch (e) { showError(e.message || String(e)); }
+  });
+
+  btnTxt.addEventListener('click', () => {
+    try {
+      const text = generate_txt(currentTsv, getTitle(), getShowCorresponding(), getShowOrcid(), getShowEqual());
+      downloadBlob(new TextEncoder().encode(text), 'authors.txt', 'text/plain');
+    } catch (e) { showError(e.message || String(e)); }
+  });
+
+
+</script>
+</body>
+</html>
