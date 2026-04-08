@@ -40,7 +40,7 @@ jobs:
         run: wasm-pack build --target web --release --no-default-features --features wasm
 
       - name: Copy WASM into web/pkg
-        run: cp -r pkg/* web/pkg/
+        run: mkdir -p web/pkg && cp -r pkg/* web/pkg/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
