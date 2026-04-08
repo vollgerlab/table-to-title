@@ -86,6 +86,26 @@
   #file-name { font-size: 0.82rem; color: #555; }
   #file-input { display: none; }
 
+  .example-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .example-row span { font-size: 0.75rem; color: #999; margin-right: 0.1rem; }
+  .btn-example {
+    padding: 0.2rem 0.65rem;
+    border: 1px solid #ccc;
+    border-radius: 12px;
+    background: #fff;
+    font-size: 0.75rem;
+    cursor: pointer;
+    color: #555;
+  }
+  .btn-example:hover { background: #f0f0f0; border-color: #aaa; }
+  .btn-example.active { background: #1a1a2e; color: #fff; border-color: #1a1a2e; }
+
   textarea {
     width: 100%;
     height: 180px;
@@ -242,6 +262,12 @@
         <span id="file-name"></span>
         <input type="file" id="file-input" accept=".tsv,.txt,.xlsx,.xls">
       </div>
+      <div class="example-row">
+        <span>Examples:</span>
+        <button class="btn-example active" id="ex-clean">Clean</button>
+        <button class="btn-example" id="ex-easy">Easy duplicate</button>
+        <button class="btn-example" id="ex-hard">Substring duplicate</button>
+      </div>
       <textarea id="tsv-input"></textarea>
       <div id="error-box"></div>
     </section>
@@ -293,10 +319,71 @@
     ["mvollger@utah.edu","Mitchell","R.","Vollger","","Department of Human Genetics, University of Utah, Salt Lake City, UT, USA","yes","","","0000-0002-8651-1615",""],
   ].map(r => r.join("\t")).join("\n");
 
-  tsvInput.value = EXAMPLE_TSV;
+  // ── Example inputs ────────────────────────────────────────────────────────
+  const HDR = ["Email","First Name","Middle Name(s)/Initial(s)","Last Name","Suffix",
+               "Institution","Corresponding Author","Home Page URL",
+               "Collaborative Group/Consortium","ORCiD","Equal Contribution"].join("\t");
+
+  // Clean: no redundancies (default)
+  const EXAMPLE_CLEAN = EXAMPLE_TSV;
+
+  // Easy duplicate: second author's institution has an extra internal space →
+  // normalises to the same string as the first author's.
+  const EXAMPLE_EASY = [HDR,
+    ["jdoe@uw.edu","Jane","A.","Doe","",
+     "Department of Genome Sciences, University of Washington School of Medicine, Seattle, WA, USA",
+     "","","","0000-0001-2345-6789","yes"].join("\t"),
+    ["bsmith@princeton.edu","Bob","T.","Smith","",
+     // Extra space after the comma — easy whitespace variant
+     "Department of Genome Sciences,  University of Washington School of Medicine, Seattle, WA, USA",
+     "","","","0000-0002-3456-7890","yes"].join("\t"),
+    ["mvollger@utah.edu","Mitchell","R.","Vollger","",
+     "Department of Human Genetics, University of Utah, Salt Lake City, UT, USA",
+     "yes","","","0000-0002-8651-1615",""].join("\t"),
+  ].join("\n");
+
+  // Hard (substring): one author lists the full departmental affiliation; another
+  // lists only the parent institution — the shorter string is a substring of the longer.
+  const EXAMPLE_HARD = [HDR,
+    ["jdoe@uw.edu","Jane","A.","Doe","",
+     "Department of Genome Sciences, University of Washington School of Medicine, Seattle, WA, USA",
+     "","","","0000-0001-2345-6789","yes"].join("\t"),
+    ["bsmith@princeton.edu","Bob","T.","Smith","",
+     // Standalone parent institution — substring of Jane's affiliation
+     "University of Washington School of Medicine, Seattle, WA, USA" +
+     "; Lewis-Sigler Institute for Integrative Genomics, Princeton University, Princeton, NJ, USA",
+     "","","","0000-0002-3456-7890","yes"].join("\t"),
+    ["mvollger@utah.edu","Mitchell","R.","Vollger","",
+     "Department of Human Genetics, University of Utah, Salt Lake City, UT, USA",
+     "yes","","","0000-0002-8651-1615",""].join("\t"),
+  ].join("\n");
+
+  const EXAMPLES = {
+    'ex-clean': EXAMPLE_CLEAN,
+    'ex-easy':  EXAMPLE_EASY,
+    'ex-hard':  EXAMPLE_HARD,
+  };
+  const exampleBtns = document.querySelectorAll('.btn-example');
+
+  function loadExample(id) {
+    exampleBtns.forEach(b => b.classList.toggle('active', b.id === id));
+    currentTsv = EXAMPLES[id];
+    tsvInput.value = currentTsv;
+    // Reset the review panel when switching examples.
+    pendingMerges = {};
+    btnApply.style.display = 'none';
+    reviewResults.innerHTML = '<p class="review-empty">Run a scan to check for redundant or near-duplicate affiliations.</p>';
+    updateScanButton();
+    updatePreview();
+  }
+
+  exampleBtns.forEach(btn => btn.addEventListener('click', () => loadExample(btn.id)));
+
+  tsvInput.value = EXAMPLE_CLEAN;
   let wasmReady = false;
-  let currentTsv = EXAMPLE_TSV;
+  let currentTsv = EXAMPLE_CLEAN;
   let debounceTimer = null;
+  let pendingMerges = {};
 
   // Initialise WASM
   try {
@@ -408,8 +495,6 @@
     btnScan.disabled = !wasmReady || !currentTsv.trim();
   }
 
-  // pendingMerges: { dropString: keepString } for user-approved merges.
-  let pendingMerges = {};
 
   btnScan.addEventListener('click', () => {
     pendingMerges = {};
