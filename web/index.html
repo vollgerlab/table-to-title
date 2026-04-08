@@ -273,15 +273,18 @@
 </div>
 
 <script type="module">
-  import init, { preview, generate_docx, generate_txt } from './pkg/table_to_title.js';
+  import init, { preview, generate_docx, generate_txt, suggest_merges, apply_merges } from './pkg/table_to_title.js';
 
-  const wasmStatus = document.getElementById('wasm-status');
-  const previewBox = document.getElementById('preview-box');
-  const errorBox   = document.getElementById('error-box');
-  const tsvInput   = document.getElementById('tsv-input');
-  const titleInput = document.getElementById('title-input');
-  const btnDocx    = document.getElementById('btn-docx');
-  const btnTxt     = document.getElementById('btn-txt');
+  const wasmStatus    = document.getElementById('wasm-status');
+  const previewBox    = document.getElementById('preview-box');
+  const errorBox      = document.getElementById('error-box');
+  const tsvInput      = document.getElementById('tsv-input');
+  const titleInput    = document.getElementById('title-input');
+  const btnDocx       = document.getElementById('btn-docx');
+  const btnTxt        = document.getElementById('btn-txt');
+  const btnScan       = document.getElementById('btn-scan');
+  const reviewResults = document.getElementById('review-results');
+  const btnApply      = document.getElementById('btn-apply-merges');
 
   const EXAMPLE_TSV = [
     ["Email","First Name","Middle Name(s)/Initial(s)","Last Name","Suffix","Institution","Corresponding Author","Home Page URL","Collaborative Group/Consortium","ORCiD","Equal Contribution"],
@@ -399,9 +402,6 @@
   }
 
   // ── Affiliation Review ────────────────────────────────────────────────────
-  const btnScan        = document.getElementById('btn-scan');
-  const reviewResults  = document.getElementById('review-results');
-  const btnApply       = document.getElementById('btn-apply-merges');
 
   // Enable scan button once WASM is ready and there's input.
   function updateScanButton() {
