@@ -126,6 +126,73 @@
   .legend { margin-top: 0.6rem; font-size: 0.85rem; color: #555; }
   .orcid-section { margin-top: 0.75rem; font-size: 0.82rem; color: #555; }
 
+  /* ── Affiliation review ──────────────────────── */
+  .review-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+  .btn-scan {
+    padding: 0.3rem 0.8rem;
+    border: 1px solid #aaa;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.82rem;
+  }
+  .btn-scan:hover:not(:disabled) { background: #f0f0f0; }
+  .btn-scan:disabled { opacity: 0.4; cursor: default; }
+  #review-results { margin-top: 0.25rem; }
+  .review-empty {
+    font-size: 0.85rem;
+    color: #888;
+    font-style: italic;
+    padding: 0.4rem 0;
+  }
+  .merge-card {
+    background: #fffbea;
+    border: 1px solid #e6c84a;
+    border-radius: 4px;
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .merge-card.accepted { background: #f0faf0; border-color: #7cbb7c; opacity: 0.7; }
+  .merge-card.skipped  { opacity: 0.4; }
+  .merge-card-body { flex: 1; line-height: 1.5; }
+  .merge-card-body .drop { color: #b45309; text-decoration: line-through; }
+  .merge-card-body .keep { color: #1a6b1a; }
+  .merge-card-body .reason { color: #888; font-size: 0.78rem; }
+  .merge-actions { display: flex; gap: 0.4rem; flex-shrink: 0; margin-top: 0.1rem; }
+  .btn-merge, .btn-skip {
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    border: 1px solid;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+  .btn-merge { background: #e6f4ea; border-color: #7cbb7c; color: #1a6b1a; }
+  .btn-merge:hover { background: #c8eacc; }
+  .btn-skip  { background: #f5f5f5; border-color: #bbb; color: #555; }
+  .btn-skip:hover  { background: #eaeaea; }
+  #btn-apply-merges {
+    margin-top: 0.5rem;
+    padding: 0.4rem 1rem;
+    border: none;
+    border-radius: 4px;
+    background: #e6a817;
+    color: #fff;
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: none;
+  }
+  #btn-apply-merges:hover { background: #c8900f; }
+
   .export-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
   .btn-export {
     padding: 0.5rem 1.2rem;
@@ -187,6 +254,15 @@
     </section>
 
     <section>
+      <div class="review-header">
+        <h2 class="section-title" style="margin:0">Affiliation Review</h2>
+        <button class="btn-scan" id="btn-scan" disabled>Scan for redundancies</button>
+      </div>
+      <div id="review-results"><p class="review-empty">Run a scan to check for redundant or near-duplicate affiliations.</p></div>
+      <button id="btn-apply-merges">Apply merges</button>
+    </section>
+
+    <section>
       <h2 class="section-title">Export</h2>
       <div class="export-row">
         <button class="btn-export btn-docx" id="btn-docx" disabled>Download .docx</button>
@@ -225,6 +301,7 @@
     wasmReady = true;
     wasmStatus.textContent = 'Ready';
     wasmStatus.className = 'ready';
+    updateScanButton();
     updatePreview();
   } catch (e) {
     wasmStatus.textContent = 'Failed to load WASM: ' + e.message;
@@ -273,7 +350,7 @@
     debounceTimer = setTimeout(updatePreview, 300);
   }
 
-  tsvInput.addEventListener('input', () => { currentTsv = tsvInput.value; scheduleUpdate(); });
+  tsvInput.addEventListener('input', () => { currentTsv = tsvInput.value; updateScanButton(); scheduleUpdate(); });
   titleInput.addEventListener('input', scheduleUpdate);
   document.getElementById('opt-equal').addEventListener('change', updatePreview);
   document.getElementById('opt-corresponding').addEventListener('change', updatePreview);
@@ -320,6 +397,109 @@
     a.href = url; a.download = filename; a.click();
     URL.revokeObjectURL(url);
   }
+
+  // ── Affiliation Review ────────────────────────────────────────────────────
+  const btnScan        = document.getElementById('btn-scan');
+  const reviewResults  = document.getElementById('review-results');
+  const btnApply       = document.getElementById('btn-apply-merges');
+
+  // Enable scan button once WASM is ready and there's input.
+  function updateScanButton() {
+    btnScan.disabled = !wasmReady || !currentTsv.trim();
+  }
+
+  // pendingMerges: { dropString: keepString } for user-approved merges.
+  let pendingMerges = {};
+
+  btnScan.addEventListener('click', () => {
+    pendingMerges = {};
+    btnApply.style.display = 'none';
+    try {
+      const raw = suggest_merges(currentTsv);
+      const suggestions = JSON.parse(raw);
+      renderSuggestions(suggestions);
+    } catch (e) {
+      reviewResults.innerHTML = `<p class="review-empty" style="color:#c00">${e.message || e}</p>`;
+    }
+  });
+
+  function renderSuggestions(suggestions) {
+    if (suggestions.length === 0) {
+      reviewResults.innerHTML = '<p class="review-empty">No redundant affiliations found.</p>';
+      btnApply.style.display = 'none';
+      return;
+    }
+    reviewResults.innerHTML = '';
+    suggestions.forEach((s, idx) => {
+      const card = document.createElement('div');
+      card.className = 'merge-card';
+      card.dataset.idx = idx;
+      card.innerHTML = `
+        <div class="merge-card-body">
+          <span class="drop">${escHtml(s.drop)}</span> &rarr;
+          <span class="keep">${escHtml(s.keep)}</span>
+          <span class="reason">&nbsp;(${escHtml(s.reason)})</span>
+        </div>
+        <div class="merge-actions">
+          <button class="btn-merge" data-drop="${escAttr(s.drop)}" data-keep="${escAttr(s.keep)}">&#10003; Merge</button>
+          <button class="btn-skip">&#10007; Skip</button>
+        </div>`;
+      reviewResults.appendChild(card);
+    });
+    updateApplyButton();
+  }
+
+  reviewResults.addEventListener('click', e => {
+    const mergeBtn = e.target.closest('.btn-merge');
+    const skipBtn  = e.target.closest('.btn-skip');
+    const card     = e.target.closest('.merge-card');
+    if (!card) return;
+
+    if (mergeBtn) {
+      pendingMerges[mergeBtn.dataset.drop] = mergeBtn.dataset.keep;
+      card.classList.add('accepted');
+      card.classList.remove('skipped');
+      card.querySelectorAll('button').forEach(b => b.disabled = true);
+    } else if (skipBtn) {
+      const drop = card.querySelector('.btn-merge').dataset.drop;
+      delete pendingMerges[drop];
+      card.classList.add('skipped');
+      card.classList.remove('accepted');
+      card.querySelectorAll('button').forEach(b => b.disabled = true);
+    }
+    updateApplyButton();
+  });
+
+  function updateApplyButton() {
+    const n = Object.keys(pendingMerges).length;
+    btnApply.style.display = n > 0 ? 'inline-block' : 'none';
+    btnApply.textContent = `Apply ${n} merge${n === 1 ? '' : 's'}`;
+  }
+
+  btnApply.addEventListener('click', () => {
+    try {
+      const cleaned = apply_merges(currentTsv, JSON.stringify(pendingMerges));
+      currentTsv = cleaned;
+      tsvInput.value = cleaned;
+      pendingMerges = {};
+      btnApply.style.display = 'none';
+      updatePreview();
+      // Re-scan so the panel reflects the updated TSV.
+      const raw = suggest_merges(currentTsv);
+      renderSuggestions(JSON.parse(raw));
+    } catch (e) {
+      reviewResults.innerHTML += `<p class="review-empty" style="color:#c00">${e.message || e}</p>`;
+    }
+  });
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function escAttr(s) {
+    return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  }
+
+  // ── Downloads ──────────────────────────────────────────────────────────────
 
   btnDocx.addEventListener('click', () => {
     try {

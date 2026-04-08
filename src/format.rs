@@ -210,6 +210,68 @@ fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
+/// Normalise an affiliation string for comparison: lowercase, collapse
+/// internal whitespace, strip trailing punctuation.
+pub fn normalize_aff(s: &str) -> String {
+    let collapsed = s.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+    collapsed.trim_end_matches(|c: char| c == '.' || c == ',').trim().to_string()
+}
+
+/// Detect redundant affiliations and return `(drop, keep)` pairs.
+///
+/// Two tiers:
+/// 1. Whitespace/case normalisation — two raw strings that normalise identically
+///    are definite duplicates; keep the first occurrence.
+/// 2. Substring containment — if the normalised form of A is wholly contained
+///    inside the normalised form of B, A is the less-specific form; suggest
+///    merging A → B (the longer, more specific string).
+pub fn find_merge_suggestions(rows: &[AuthorRow]) -> Vec<(String, String)> {
+    // Collect unique raw affiliation strings in order of first appearance.
+    let mut seen: Vec<String> = Vec::new();
+    for row in rows {
+        for inst in &row.institutions {
+            if !seen.contains(inst) {
+                seen.push(inst.clone());
+            }
+        }
+    }
+
+    let normed: Vec<String> = seen.iter().map(|s| normalize_aff(s)).collect();
+    let mut suggestions: Vec<(String, String)> = Vec::new();
+    let mut already_dropped: std::collections::HashSet<usize> = Default::default();
+
+    for i in 0..seen.len() {
+        if already_dropped.contains(&i) {
+            continue;
+        }
+        for j in (i + 1)..seen.len() {
+            if already_dropped.contains(&j) {
+                continue;
+            }
+            let ni = &normed[i];
+            let nj = &normed[j];
+
+            if ni == nj {
+                // Tier 1: identical after normalisation — definite duplicate.
+                // Keep the earlier occurrence (i), drop j.
+                suggestions.push((seen[j].clone(), seen[i].clone()));
+                already_dropped.insert(j);
+            } else if nj.contains(ni.as_str()) {
+                // i normalised is a substring of j normalised → i is less specific.
+                suggestions.push((seen[i].clone(), seen[j].clone()));
+                already_dropped.insert(i);
+                break; // i is now scheduled to be dropped; skip further comparisons for i.
+            } else if ni.contains(nj.as_str()) {
+                // j normalised is a substring of i normalised → j is less specific.
+                suggestions.push((seen[j].clone(), seen[i].clone()));
+                already_dropped.insert(j);
+            }
+        }
+    }
+
+    suggestions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,6 +334,92 @@ mod tests {
         ];
         let data = build_author_data(&rows);
         assert_eq!(data.authors[1].aff_numbers, vec![1, 2]);
+    }
+
+    #[test]
+    fn normalize_aff_collapses_whitespace_and_case() {
+        assert_eq!(normalize_aff("  Dept of Genetics,  University of Utah. "), "dept of genetics, university of utah");
+        assert_eq!(normalize_aff("University of UTAH"), "university of utah");
+        assert_eq!(normalize_aff("MIT."), "mit");
+    }
+
+    #[test]
+    fn find_merge_suggestions_exact_dup() {
+        let rows = vec![
+            AuthorRow {
+                email: "".into(), first: "A".into(), middle: "".into(), last: "A".into(),
+                suffix: "".into(), institutions: vec!["Univ X".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+            AuthorRow {
+                email: "".into(), first: "B".into(), middle: "".into(), last: "B".into(),
+                suffix: "".into(), institutions: vec!["Univ X".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+        ];
+        // Exact duplicates are already handled by build_author_data; find_merge_suggestions
+        // should not re-surface them since they're the same raw string (not seen twice).
+        let s = find_merge_suggestions(&rows);
+        assert!(s.is_empty(), "exact dupes already deduped upstream: {:?}", s);
+    }
+
+    #[test]
+    fn find_merge_suggestions_whitespace_variant() {
+        let rows = vec![
+            AuthorRow {
+                email: "".into(), first: "A".into(), middle: "".into(), last: "A".into(),
+                suffix: "".into(), institutions: vec!["Univ  X".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+            AuthorRow {
+                email: "".into(), first: "B".into(), middle: "".into(), last: "B".into(),
+                suffix: "".into(), institutions: vec!["Univ X".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+        ];
+        let s = find_merge_suggestions(&rows);
+        assert_eq!(s.len(), 1);
+        // First occurrence ("Univ  X") is kept, second ("Univ X") dropped
+        assert_eq!(s[0].1, "Univ  X", "keep first occurrence");
+    }
+
+    #[test]
+    fn find_merge_suggestions_substring_containment() {
+        let rows = vec![
+            AuthorRow {
+                email: "".into(), first: "A".into(), middle: "".into(), last: "A".into(),
+                suffix: "".into(),
+                institutions: vec!["Dept of Human Genetics, University of Utah".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+            AuthorRow {
+                email: "".into(), first: "B".into(), middle: "".into(), last: "B".into(),
+                suffix: "".into(),
+                institutions: vec!["University of Utah".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+        ];
+        let s = find_merge_suggestions(&rows);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0].0, "University of Utah", "shorter form should be dropped");
+        assert_eq!(s[0].1, "Dept of Human Genetics, University of Utah", "longer form kept");
+    }
+
+    #[test]
+    fn find_merge_suggestions_no_match() {
+        let rows = vec![
+            AuthorRow {
+                email: "".into(), first: "A".into(), middle: "".into(), last: "A".into(),
+                suffix: "".into(), institutions: vec!["MIT".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+            AuthorRow {
+                email: "".into(), first: "B".into(), middle: "".into(), last: "B".into(),
+                suffix: "".into(), institutions: vec!["Stanford University".into()],
+                is_corresponding: false, is_equal_contribution: false, orcid: "".into(),
+            },
+        ];
+        assert!(find_merge_suggestions(&rows).is_empty());
     }
 
     #[test]
