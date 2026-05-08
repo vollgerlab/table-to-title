@@ -31,18 +31,18 @@ pub fn build_docx(data: &AuthorData, opts: &FormatOptions, title: &str) -> Resul
 
         para = para.add_run(Run::new().add_text(&author.name));
 
-        // Build superscript: [*][†][1,2,3]
+        // Build superscript: [1,2,3][*][†] — numbers first, then symbols
         let mut sup = String::new();
+        if !author.aff_numbers.is_empty() {
+            sup.push_str(
+                &author.aff_numbers.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(","),
+            );
+        }
         if opts.show_equal && author.is_equal {
             sup.push('*');
         }
         if opts.show_corresponding && author.is_corresponding {
             sup.push('\u{2020}');
-        }
-        if !author.aff_numbers.is_empty() {
-            sup.push_str(
-                &author.aff_numbers.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(","),
-            );
         }
         if !sup.is_empty() {
             let mut run = Run::new().add_text(&sup);
